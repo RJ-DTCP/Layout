@@ -8,6 +8,7 @@ import numpy as np
 import os
 import zipfile
 
+# 1. PAGE LAYOUT SETUP
 st.set_page_config(page_title="TNCDBR 2019 Advanced Layout Generator", layout="wide")
 
 st.title("🏗️ TNCDBR 2019 Advanced Urban Subdivision Workspace")
@@ -16,7 +17,7 @@ This production-ready workspace partitions parcel boundaries based on **TNCDBR 2
 It dynamically accommodates mixed-use commercial pockets, custom road grids, and generates downloadable **GeoJSON files** for GIS/AutoCAD workflows.
 """)
 
-# --- SIDEBAR INTERFACE CONTROLS ---
+# 2. SIDEBAR INTERFACE CONTROLS
 st.sidebar.header("🕹️ Global Infrastructure Rules")
 road_width = st.sidebar.slider("Primary Access Spine Width (meters)", 9.0, 24.0, 12.0, 1.0, 
                                help="TNCDBR Rule 47: Minimum extendable layout road width is 9.0m.")
@@ -36,6 +37,7 @@ comm_h = st.sidebar.slider("Comm. Plot Depth (m)", 15.0, 50.0, 25.0, 1.0) if ena
 st.sidebar.header("📂 Spatial Boundary Input")
 uploaded_file = st.sidebar.file_uploader("Upload Boundary (KML or Shapefile .zip)", type=["kml", "zip"])
 
+# 3. SPATIAL PROCESSING PIPELINE ENGINE
 def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, c_w_val, c_h_val):
     if file_path.lower().endswith('.kml'):
         try:
@@ -48,19 +50,19 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
         gdf = gpd.read_file(file_path)
 
     if gdf.crs is None or gdf.crs.is_geographic:
-        gdf = gdf.to_crs(epsg=32644)  # Reproject to UTM Zone 44N for precise metric metrics
+        gdf = gdf.to_crs(epsg=32644)  # Reproject to UTM Zone 44N for precise metric calculations
 
     parcel = gdf.unary_union
     total_area = parcel.area
     
-    # Statutory Requirements Calculations
+    # Statutory Requirements Calculations (10% OSR and 1% Utilities)
     req_osr = total_area * 0.10          
     req_public = total_area * 0.01       
     
     min_x, min_y, max_x, max_y = parcel.bounds
     width, height = max_x - min_x, max_y - min_y
 
-    # Slice statutory zones safely
+    # Slice statutory zones safely inside the parcel bounds
     osr_w = np.sqrt(req_osr)
     osr_poly = Polygon([(min_x, max_y), (min_x + osr_w, max_y), (min_x + osr_w, max_y - osr_w), (min_x, max_y - osr_w)]).intersection(parcel)
     
@@ -97,6 +99,7 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
     ax.set_aspect('equal')
     ax.axis('off')
     
+    # Render Master Envelopes
     ax.fill(*osr_poly.exterior.xy, facecolor='#27ae60', edgecolor='#1e8449', alpha=0.7)
     ax.fill(*public_poly.exterior.xy, facecolor='#f1c40f', edgecolor='#f39c12', alpha=0.7)
     
@@ -115,12 +118,16 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
     else:
         blocks_list = []
 
+    # Dynamic Parcel Subdivision Iteration
     for block in blocks_list:
+        if block.is_empty:
+            continue
         b_minx, b_miny, b_maxx, b_maxy = block.bounds
         
         is_comm_block = c_enabled and (b_maxx > comm_threshold_x)
         p_w = c_w_val if is_comm_block else r_w_val
         p_h = c_h_val if is_comm_block else r_h_val
+        
         f_color = '#af7ac5' if is_comm_block else '#ebedef'
         e_color = '#8e44ad' if is_comm_block else '#bdc3c7'
         b_color = '#f5eef8' if is_comm_block else '#d5f5e3'
@@ -142,13 +149,17 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
                         
                     add_export_geometry(potential_plot, zone_label)
                     
+                    # Add plot geometry to layout canvas drawing
                     ax.fill(*potential_plot.exterior.xy, facecolor=f_color, edgecolor=e_color, linewidth=0.6)
                     footprint = potential_plot.buffer(-1.5)
                     if not footprint.is_empty and isinstance(footprint, Polygon):
                         ax.fill(*footprint.exterior.xy, facecolor=b_color, edgecolor=s_color, alpha=0.4, linewidth=0.3)
 
-    final_gdf = gpd.GeoDataFrame(gpd.pd.concat(export_features, ignore_index=True), crs="EPSG:32644")
-    geojson_out = final_gdf.to_crs(epsg=4326).to_json()
+    if len(export_features) > 0:
+        final_gdf = gpd.GeoDataFrame(gpd.pd.concat(export_features, ignore_index=True), crs="EPSG:32644")
+        geojson_out = final_gdf.to_crs(epsg=4326).to_json()
+    else:
+        geojson_out = "{}"
 
     metrics = {
         "total_area": total_area,
@@ -162,6 +173,7 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
     
     return fig, metrics
 
+# 4. RUNTIME APP EXECUTION ENTRY HOOK
 if uploaded_file is not None:
     temp_dir = "temp_spatial_workspace"
     os.makedirs(temp_dir, exist_ok=True)
@@ -206,11 +218,9 @@ if uploaded_file is not None:
                 st.metric(label="✅ Verified Residential Plots", value=f"{metrics['res_count']} Units")
                 if enable_commercial:
                     st.metric(label="🏢 Verified Commercial Blocks", value=f"{metrics['comm_count']} Units")
+                    st.subheader("💾 Export & Delivery System")
+                    st.markdown("Download the fully vectorized plot layout as a GeoJSON file. You can import this file directly into AutoCAD, ArcGIS, or QGIS.")
+                    st.download_button(label="Download Layout Vector (GeoJSON)",data=metrics['geojson'],file_name="tncdbr_finalized_layout.geojson",mime="application/json")
+    except Exception as e:st.error(f"Error compiling geographic parameters: {e}")
+      else:st.info("💡 Dynamic parameters initialized. Upload your parcel boundary geometry file inside the left sidebar panel to begin subdivision generation.")
                 
-                st.subheader("💾 Export & Delivery System")
-                st.markdown("Download the fully vectorized plot layout as a GeoJSON file. You can import this file directly into AutoCAD, ArcGIS, or QGIS.")
-                
-                st.download_button(
-                    label="Download Layout Vector (GeoJSON)",
-                    data=metrics['geojson'],
-                    file_name="tncdbr_finalized_layout.geojson",
