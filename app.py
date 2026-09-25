@@ -189,7 +189,7 @@ if uploaded_file is not None:
             zip_ref.extractall(temp_dir)
             shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
             if shp_files:
-                file_path = os.path.join(temp_dir, shp_files[0])
+                file_path = os.path.join(temp_dir, shp_files)
 
     try:
         if res_area_min < 72.0:
@@ -211,5 +211,5 @@ if uploaded_file is not None:
                 st.subheader("Statutory Compliance Area Statement")
                 
                 data_matrix = {
-                    "Land Allocation Component": ["OSR Park Space (10%)", "Public Utilities (1%)", "Road Infrastructure Infrastructure"],
+                    "Land Allocation Component": ["OSR Park Space (10%)", "Public Utilities (1%)", "Road Infrastructure"],
                     "Calculated Metrics (m²)": [f"{metrics['osr_area']:.2f}", f"{metrics['public_area']:.2f}", f"{metrics['road_area']:.2f}"],
