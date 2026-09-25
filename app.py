@@ -219,8 +219,15 @@ if uploaded_file is not None:
                 if enable_commercial:
                     st.metric(label="🏢 Verified Commercial Blocks", value=f"{metrics['comm_count']} Units")
                     st.subheader("💾 Export & Delivery System")
-                    st.markdown("Download the fully vectorized plot layout as a GeoJSON file. You can import this file directly into AutoCAD, ArcGIS, or QGIS.")
-                    st.download_button(label="Download Layout Vector (GeoJSON)",data=metrics['geojson'],file_name="tncdbr_finalized_layout.geojson",mime="application/json")
-    except Exception as e:st.error(f"Error compiling geographic parameters: {e}")
-      else:st.info("💡 Dynamic parameters initialized. Upload your parcel boundary geometry file inside the left sidebar panel to begin subdivision generation.")
+                st.markdown("Download the fully vectorized plot layout as a GeoJSON file. You can import this file directly into AutoCAD, ArcGIS, or QGIS.")
                 
+                st.download_button(
+                    label="Download Layout Vector (GeoJSON)",
+                    data=metrics['geojson'],
+                    file_name="tncdbr_finalized_layout.geojson",
+                    mime="application/json"
+                )
+    except Exception as e:
+        st.error(f"Error compiling geographic parameters: {e}")
+else:
+    st.info("💡 Dynamic parameters initialized. Upload your parcel boundary geometry file inside the left sidebar panel to begin subdivision generation.")
