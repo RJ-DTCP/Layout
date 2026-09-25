@@ -7,7 +7,6 @@ from shapely.ops import unary_union
 import numpy as np
 import os
 import zipfile
-import json
 
 st.set_page_config(page_title="TNCDBR 2019 Advanced Layout Generator", layout="wide")
 
@@ -38,28 +37,32 @@ st.sidebar.header("📂 Spatial Boundary Input")
 uploaded_file = st.sidebar.file_uploader("Upload Boundary (KML or Shapefile .zip)", type=["kml", "zip"])
 
 def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, c_w_val, c_h_val):
-    # Native spatial format ingestion
+    # Native spatial format ingestion with dynamic driver exception safeguards
     if file_path.lower().endswith('.kml'):
-        import fiona
-        fiona.drvsupport.supported_drivers['KML'] = 'rw'
-        gdf = gpd.read_file(file_path, driver='KML')
+        try:
+            import fiona
+            fiona.drvsupport.supported_drivers['KML'] = 'rw'
+            gdf = gpd.read_file(file_path, driver='KML')
+        except Exception:
+            # Resilient fallback handler to read spatial geometry directly via GeoPandas/PyOGRIO
+            gdf = gpd.read_file(file_path)
     else:
         gdf = gpd.read_file(file_path)
 
     if gdf.crs is None or gdf.crs.is_geographic:
-        gdf = gdf.to_crs(epsg=32644)  # Reproject to UTM Zone 44N for metric integrity
+        gdf = gdf.to_crs(epsg=32644)  # Reproject to UTM Zone 44N for precise metric calculations
 
     parcel = gdf.unary_union
     total_area = parcel.area
     
-    # Statutory Requirements Calculations
+    # Statutory Requirements Calculations (10% Park OSR & 1% Utilities)
     req_osr = total_area * 0.10          
     req_public = total_area * 0.01       
     
     min_x, min_y, max_x, max_y = parcel.bounds
     width, height = max_x - min_x, max_y - min_y
 
-    # Slice statutory zones safely
+    # Slice statutory zones safely inside bounds
     osr_w = np.sqrt(req_osr)
     osr_poly = Polygon([(min_x, max_y), (min_x + osr_w, max_y), (min_x + osr_w, max_y - osr_w), (min_x, max_y - osr_w)]).intersection(parcel)
     
@@ -74,7 +77,7 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
     v_road = LineString([(mid_x, min_y), (mid_x, max_y)]).buffer(r_w / 2)
     road_network = unary_union([h_road, v_road]).intersection(parcel)
 
-    # Segregate remaining blocks into physical layout pockets
+    # Segregate remaining blocks into layout pockets
     plot_blocks = remaining_parcel.difference(road_network)
     
     # Prepare Data list for Export Frame mapping
@@ -101,7 +104,7 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
     ax.set_aspect('equal')
     ax.axis('off')
     
-    # Render Master Envelopes
+    # Render Master Statutory Envelopes
     ax.fill(*osr_poly.exterior.xy, facecolor='#27ae60', edgecolor='#1e8449', alpha=0.7)
     ax.fill(*public_poly.exterior.xy, facecolor='#f1c40f', edgecolor='#f39c12', alpha=0.7)
     
@@ -125,7 +128,7 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
     for block in blocks_list:
         b_minx, b_miny, b_maxx, b_maxy = block.bounds
         
-        # Decide if this sector handles commercial or residential based on spatial bounds
+        # Determine zoning typology dynamically per sub-block area
         is_comm_block = c_enabled and (b_maxx > comm_threshold_x)
         p_w = c_w_val if is_comm_block else r_w_val
         p_h = c_h_val if is_comm_block else r_h_val
@@ -150,15 +153,15 @@ def process_advanced_layout(file_path, r_w, r_w_val, r_h_val, c_enabled, c_pct, 
                         
                     add_export_geometry(potential_plot, zone_label)
                     
-                    # Plot geometry onto static display map
+                    # Render visual representations
                     ax.fill(*potential_plot.exterior.xy, facecolor=f_color, edgecolor=e_color, linewidth=0.6)
                     footprint = potential_plot.buffer(-1.5)
                     if not footprint.is_empty and isinstance(footprint, Polygon):
                         ax.fill(*footprint.exterior.xy, facecolor=b_color, edgecolor=s_color, alpha=0.4, linewidth=0.3)
 
     # Structural Vector Compilations
-    final_gdf = gpd.GeoDataFrame(dict(gpd.pd.concat(export_features, ignore_index=True)), crs="EPSG:32644")
-    # Project back to Standard global coordinates system for universal GIS loading
+    final_gdf = gpd.GeoDataFrame(gpd.pd.concat(export_features, ignore_index=True), crs="EPSG:32644")
+    # Project back to Standard global coordinates system (WGS84) for universal loading
     geojson_out = final_gdf.to_crs(epsg=4326).to_json()
 
     metrics = {
@@ -198,7 +201,7 @@ if uploaded_file is not None:
                     enable_commercial, comm_split, comm_w, comm_h
                 )
                 
-            col1, col2 = st.columns([3, 2])
+            col1, col2 = st.columns()
             
             with col1:
                 st.subheader("Subdivision Layout Blueprint Preview")
@@ -210,9 +213,3 @@ if uploaded_file is not None:
                 data_matrix = {
                     "Land Allocation Component": ["OSR Park Space (10%)", "Public Utilities (1%)", "Road Infrastructure Infrastructure"],
                     "Calculated Metrics (m²)": [f"{metrics['osr_area']:.2f}", f"{metrics['public_area']:.2f}", f"{metrics['road_area']:.2f}"],
-                    "Ratio Summary": [f"{(metrics['osr_area']/metrics['total_area'])*100:.1f}%", f"{(metrics['public_area']/metrics['total_area'])*100:.1f}%", f"{(metrics['road_area']/metrics['total_area'])*100:.1f}%"]
-                }
-                st.table(data_matrix)
-                
-                st.metric(label="✅ Verified Residential Plots", value=f"{metrics['res_count']} Units")
-                if enable_commercial:
